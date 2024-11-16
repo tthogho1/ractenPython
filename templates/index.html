@@ -2,6 +2,9 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
+    <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/2.3.8/purify.min.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>チャットボット</title>
@@ -51,17 +54,72 @@
         button:hover {
             background-color: #1976d2;
         }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0,0,0,.3);
+            border-radius: 50%;
+            border-top-color: #2196f3;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
     </style>
 </head>
 <body>
-    <h1>AIチャットボット</h1>
+    <h1>Hotel Search</h1>
     <div id="chat-container"></div>
     <div id="input-container">
-        <input type="text" id="user-input" placeholder="メッセージを入力してください...">
-        <button onclick="sendMessage()">送信</button>
+        <input type="text" id="user-input" placeholder="Enter Message..">
+        <button onclick="sendMessage()">Send</button>
     </div>
 
     <script>
+        const socket = io();
+
+        socket.on('connect', function() {
+            console.log('Connected to server');
+        });
+
+        socket.on('message', (function() {
+            let streamDiv = null;
+            let streamString = null;
+        
+            return function(data) {
+                const chatContainer = document.getElementById('chat-container');
+
+                if (data === "$$start$$") {
+                    const loadingDiv = chatContainer.querySelector('.bot-message:last-child');
+                    if (loadingDiv && loadingDiv.querySelector('.loading')) {
+                        loadingDiv.remove();
+                    }
+
+                    streamDiv = document.createElement('div');
+                    streamDiv.className = "message bot-message";
+                    chatContainer.appendChild(streamDiv);
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                    streamString = "";
+                } else if (data === "$$stop$$") {
+                    streamDiv = null;
+                    streamString = null;
+                } else if (streamDiv) {
+                    streamString += data;
+                    const sanitizedHtml = marked.parse(streamString, {
+                        sanitize: true,
+                        sanitizer: DOMPurify.sanitize
+                    });
+                    streamDiv.innerHTML = sanitizedHtml;
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                }
+            };
+        })());
+
+
         function addMessage(message, isUser) {
             const chatContainer = document.getElementById('chat-container');
             const messageDiv = document.createElement('div');
@@ -76,9 +134,20 @@
             const message = input.value.trim();
             
             if (message === '') return;
-            
+
             addMessage(message, true);
             input.value = '';
+
+            // ローディングアニメーションを追加
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = "message bot-message";
+            const loadingSpinner = document.createElement('div');
+            loadingSpinner.className = "loading";
+            loadingDiv.appendChild(loadingSpinner);
+            document.getElementById('chat-container').appendChild(loadingDiv);
+            // 位置調整
+            const chatContainer = document.getElementById('chat-container');
+            chatContainer.scrollTop = chatContainer.scrollHeight;
 
             try {
                 const response = await fetch('/chat', {
@@ -92,11 +161,12 @@
                 const data = await response.json();
                 
                 if (response.ok) {
-                    addMessage(data.answer, false);
+                    // addMessage(data.answer, false);
                 } else {
                     addMessage('エラーが発生しました: ' + data.error, false);
                 }
             } catch (error) {
+                loadingDiv.remove(); // エラー時にローディングを削除
                 addMessage('エラーが発生しました: ' + error, false);
             }
         }
